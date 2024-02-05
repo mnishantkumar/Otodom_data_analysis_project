@@ -1,0 +1,24 @@
+1) Go to Terminal --> Create new virtual environment using conda and activate it
+
+	conda create --name project57test1 python=3.11
+	conda activate project57test1
+
+2) Install the required python packages:
+	
+	pip install pandas
+	pip install SQLAlchemy
+	pip install "snowflake-connector-python[pandas]"
+	pip install snowflake-sqlalchemy
+	pip install gspread
+	pip install gspread-dataframe
+
+
+	Additional packages for geocode & google translate
+	pip install geopy
+	pip install dask
+	pip install deep-translator
+
+
+3) Go to vscode and open the python script and change python interpreter to point to the above created virtual environment.
+
+4) 

@@ -1,0 +1,413 @@
+
+
+/***
+
+Mentioned below is the complete flow of Otodom Analysis project using Snowflake, Python, Google Sheets and Brightdata
+
+This file includes the scripts used in Snowflake.
+Python scripts are provided in seperate file.
+
+***/
+
+
+
+
+--------
+STEP - A:
+--------
+
+Go to Otodom website and analyse the data for better undersdtanding of the project.
+
+https://www.otodom.pl/ 
+
+
+
+
+
+--------
+STEP - B:
+--------
+
+Go to Brightdata and download the dataset for the project.
+
+https://brightdata.com/
+
+
+Export the dataset to snowflake stage as mentioned in techTFQ YouTube video
+
+
+
+
+
+--------
+STEP - C:
+--------
+
+In order to export Otodom dataset from brightdata to snowflake, you first need to create a account with snowflake using below link:
+
+https://www.snowflake.com/en/
+
+
+
+
+Next, Install SnowSQL (Command line tool for Snowflake):
+https://developers.snowflake.com/snowsql/
+
+
+
+
+1) Login to Snowflake:
+
+go to terminal and type:
+snowsql -a <account-name> -u <username>
+enter password
+
+
+==> Please note: "account-name" can be found in the URL to login to snowflake
+
+
+
+
+2) Create database:
+
+CREATE OR REPLACE database demo;
+
+==> Test by running below command:
+select current_database(), current_schema();
+
+
+
+
+2) Create virtual warehouse:
+
+CREATE OR REPLACE warehouse demo_wh;
+
+OR 
+
+CREATE OR REPLACE WAREHOUSE demo_wh with
+warehouse_size='X-SMALL'
+auto_suspend=180
+Auto_resume=TRUE
+initially_Suspended=TRUE;
+
+==> Note: The demo_wh warehouse is initially suspended but the DML statement also sets AUTO_RESUME = true. The AUTO_RESUME setting causes a warehouse to automatically start when SQL statements that require compute resources are executed.
+
+select current_warehouse(), current_database(), current_schema();
+
+
+
+
+3) Create a table and query it:
+
+CREATE TABLE otodom_data_dump(json_data variant);
+
+select table_schema,table_name,table_owner,table_type 
+from information_schema.tables where lower(table_schema)='public';
+
+
+
+4) Create file format object.
+
+CREATE OR REPLACE FILE FORMAT json_format
+type = 'JSON'
+strip_outer_array = TRUE;
+
+
+==>Note: STRIP_OUTER_ARRAY = TRUE directs the COPY command to exclude the root brackets ([]) when loading data to the table.
+
+
+
+
+5) Create internal stage
+
+CREATE OR REPLACE STAGE otodom_stage
+file_format = json_format;
+
+
+
+
+
+==> After creating the stage, go back to brightdata, and export the dataset to snowflake. Mention the stage name as created above.
+==> If you are using sample dataset given by techTFQ in csv format then follow the steps mentioned in file "Load_Sample_Dataset_to_SF.txt" to export the dataset to Snowflake using sample file.
+
+
+
+
+
+6) Copy into table:
+
+COPY INTO otodom_data_dump
+from @otodom_stage
+on_error = 'skip_file';
+
+
+==> Note: The ON_ERROR = 'skip_file' clause specifies what to do when the COPY command encounters errors in the files. In this case, when the command encounters a data error on any of the records in a file, it skips the file. If you do not specify an ON_ERROR clause, the default is abort_statement, which aborts the COPY command on the first error encountered on any of the records in a file.
+
+
+
+
+7) Verify the loaded data:
+	
+SELECT count(1) FROM otodom_data_dump;		
+SELECT * FROM otodom_data_dump limit 1;
+
+
+
+
+
+8) Flatten JSON to table
+
+CREATE OR REPLACE table otodom_data_flatten
+as
+select row_number() over(order by title) as rn
+, x.*
+from (
+select replace(json_data:advertiser_type,'"')::string as advertiser_type
+, replace(json_data:balcony_garden_terrace,'"')::string as balcony_garden_terrace
+, regexp_replace(replace(json_data:description,'"'), '<[^>]+>')::string as description
+, replace(json_data:heating,'"')::string as heating
+, replace(json_data:is_for_sale,'"')::string as is_for_sale
+, replace(json_data:lighting,'"')::string as lighting
+, replace(json_data:location,'"')::string as location
+, replace(json_data:price,'"')::string as price
+, replace(json_data:remote_support,'"')::string as remote_support
+, replace(json_data:rent_sale,'"')::string as rent_sale
+, replace(json_data:surface,'"')::string as surface
+, replace(json_data:timestamp,'"')::date as timestamp
+, replace(json_data:title,'"')::string as title
+, replace(json_data:url,'"')::string as url
+, replace(json_data:form_of_property,'"')::string as form_of_property
+, replace(json_data:no_of_rooms,'"')::string as no_of_rooms
+, replace(json_data:parking_space,'"')::string as parking_space
+from otodom_data_dump 
+) x;
+
+
+
+==> Check if any test data is loaded using below query:
+
+SELECT * FROM otodom_data_flatten where url is null;
+
+==> Delete such records. Probably could be 1 such test record.
+
+DELETE from otodom_data_flatten where url is null;
+
+
+
+
+
+
+--------
+STEP - D:
+--------
+
+OTODOM_DATA_FLATTEN table will have data taken from Otodom but couple of transformation will be required.
+
+==> Before executing Python scripts, create a virtual environment and install all the required packages as mentioned in file "Python_Prerequisites_Otodom_Analysis.txt".
+==> Before executing the below D2 step, you will need to go to google developer console (have an account) and do the following:
+       ==> Create a project and select it as current project.
+       ==> Go to Librabry and search for "Google Drive API" and enable it.
+       ==> Go to Librabry and search for "Google Sheets API" and enable it.
+       ==> Go to credentials and create a credential. Choose service account.
+       ==> Once service account credential is created, click on it and go to keys and create a new key in JSON format.
+       ==> Download the JSON file (generated key). This file is required for python to connect to your google drive to create and work with google sheets.
+
+
+D1) Transform location coordinates (Latitude and Longitude) into proper address having city, suburb, country etc. 
+This can be achieved in Python using "geopy.geocoders". 
+
+So execute the python script "fetch_address_Otodom_Analysis.py". This will take location data from OTODOM_DATA_FLATTEN table and return the proper address for each location and load it into a new table OTODOM_DATA_FLATTEN_ADDRESS.
+
+If you do not want to use Python, then a csv file containing address data is given, please upload csv file data to a new table OTODOM_DATA_FLATTEN_ADDRESS_FULL.
+
+
+
+D2) Translate Title from Polish to English language.
+This can also be achieved using the same python program as used above and by calling the GoogleTranslator API from Python. However for over 200k records this will fail since 200k is the max limit per day/month.
+
+Alternatively, we can achieve this in Google sheets using the GoogleTranslator API. In Google sheets, if we split the records into multiple files of 10k records each, the API seems to be working.
+
+Please execute the Python script "translate_text_gsheet_Otodom_Analysis.py". This will create multiple (32 files for given full dataset) in the shared google account.
+Once the files are created, please wait for 30-60 mins for all the translation to happen within the google sheets.
+
+Then run the next Python script "load_data_gsheet_to_SF_Otodom_Analysis.py" to load the data from google sheets back to Snowflake. This will create a new table in snowflake by name "OTODOM_DATA_FLATTEN_TRANSLATE" which will have the new column "TITLE_ENG" (translated title in English)
+
+
+
+
+
+
+--------
+STEP - E:
+--------
+
+Now you have the 3 tables:
+       ==> OTODOM_DATA_FLATTEN - Contains original flattened Otodom dataset.
+       ==> OTODOM_DATA_FLATTEN_ADDRESS_FULL - Contains address for all locations coordinates.
+       ==> OTODOM_DATA_FLATTEN_TRANSLATE - Contains english translated title.
+
+
+Using the above 3 tables, create a new tables as mentioned below.
+This will also create a new column "APARTMENT_FLAG" which can be used to determine if the property ad is for an apartment or for a non apartment (like office space, commercial buildings etc)
+
+
+CREATE OR REPLACE TABLE OTODOM_DATA_TRANSFORMED
+as
+with cte as 
+    (select ot.*
+    , case when price like 'PLN%' then try_to_number(replace(price,'PLN ',''),'999,999,999.99')
+           when price like '€%' then try_to_number(replace(price,'€',''),'999,999,999.99') * 4.43
+      end as price_new
+    , try_to_double(replace(replace(replace(replace(surface,'m²',''),'м²',''),' ',''),',','.'),'9999.99') as surface_new
+    , replace(parse_json(addr.address):suburb,'"', '') as suburb
+    , replace(parse_json(addr.address):city,'"', '') as city
+    , replace(parse_json(addr.address):country,'"', '') as country
+    , trans.title_eng as title_eng
+    from otodom_data_flatten ot 
+    left join otodom_data_flatten_address_full addr on ot.rn=addr.rn 
+    left join otodom_data_flatten_translate_full trans on ot.rn=trans.rn)
+select *
+, case when lower(title_eng) like '%commercial%' or lower(title_eng) like '%office%' or lower(title_eng) like '%shop%' then 'non apartment'
+       when is_for_sale = 'false' and surface_new <=330 and price_new <=55000 then 'apartment'
+       when is_for_sale = 'false' then 'non apartment'
+       when is_for_sale = 'true'  and surface_new <=600 and price_new <=20000000 then 'apartment'
+       when is_for_sale = 'true'  then 'non apartment'
+  end as apartment_flag
+from cte;
+
+
+
+
+
+
+--------
+STEP - F:
+--------
+
+Using the above OTODOM_DATA_TRANSFORMED table, solve the below problems. Answers are given in seperate file "Problems_n_Solutions.txt"
+
+
+1) What is the average rental price of 1 room, 2 room, 3 room and 4 room apartments in some of the major cities in Poland? 
+       Arrange the result such that avg rent for each type fo room is shown in seperate column
+
+2) I want to buy an apartment which is around 90-100 m2 and within a range of 800,000 to 1M, display the suburbs in warsaw where I can find such apartments.       
+
+3) What size of an apartment can I expect with a monthly rent of 3000 to 4000 PLN in different major cities of Poland?
+
+4) What are the most expensive apartments in major cities of Poland? Display the ad title in english along with city, suburb, cost, size.
+
+5) What is the percentage of private & business ads on otodom?
+
+6) What is the avg sale price for apartments within 50-70 m2 area in major cities of Poland?
+
+7) What is the average rental price for apartments in warsaw in different suburbs?
+       Categorize the result based on surface area 0-50, 50-100 and over 100.
+
+8) Which are the top 3 most luxurious neighborhoods in Warsaw? Luxurious neighborhoods can be defined as suburbs which has the most no of of apartments costing over 2M in cost.
+
+9) Most small families would be looking for apartment with 40-60 m2 in size. Identify the top 5 most affordable neighborhoods in warsaw.
+
+10) Which suburb in warsaw has the most and least no of private ads?
+
+11) What is the average rental price and sale price in some of the major cities in Poland?
+
+
+
+
+
+
+
+---------------------------------------------------
+       LOAD CSV to SNOWFLAKE - ADDRESS TABLE
+---------------------------------------------------
+
+1) Create the destination table:
+
+CREATE TABLE OTODOM_DATA_ADDRESS_FULL
+(
+    rn   int,
+    location  text,
+    address  text
+);
+
+
+
+2) Create a file format object for CSV file:
+
+CREATE OR REPLACE FILE FORMAT CSV_FORMAT
+  type = csv
+  field_delimiter = ','
+  field_optionally_enclosed_by='"';
+
+
+
+3) Create an internal stage:
+
+ CREATE OR REPLACE STAGE MY_CSV_STAGE
+  file_format=csv_format;
+
+
+
+4) Load csv file data to internal stage. Please note, below PUT command can only be run from SNOWSQL (Command line prompt os Snowflake).
+
+PUT file:///Users/thoufiq/coding/projects/otodom_data_analysis/FINAL/Dataset/Full_dataset/Otodom_311k_dataset_address.csv @my_csv_stage;
+
+
+
+5) Load data from stage to table:
+
+COPY INTO OTODOM_DATA_FLATTEN_ADDRESS_FULL
+from @my_csv_stage;
+
+OR 
+
+COPY INTO otodom_data_address_full (rn,location,address)
+FROM (
+    SELECT $1
+      ,$2 
+      ,$3 
+   FROM @my_csv_stage/Otodom_311k_dataset_address.csv.gz
+);
+
+
+
+6) Verify the data:
+
+SELECT * FROM OTODOM_DATA_ADDRESS_FULL;
+
+
+
+
+
+
+---------------------------------------------------
+       LOAD CSV to SNOWFLAKE - TRANSLATE TABLE
+---------------------------------------------------
+
+CREATE TABLE OTODOM_DATA_FLATTEN_TRANSLATE_FULL
+(
+    rn   int,
+    title  text,
+    title_eng  text
+);
+
+
+CREATE OR REPLACE STAGE MY_CSV_STAGE_TRANS
+  file_format=csv_format;
+
+
+PUT file:///Users/thoufiq/coding/projects/otodom_data_analysis/FINAL/Dataset/Full_dataset/Otodom_311k_dataset_title_eng.csv @MY_CSV_STAGE_TRANS;
+
+
+COPY INTO OTODOM_DATA_FLATTEN_TRANSLATE_FULL
+from @MY_CSV_STAGE_TRANS;
+
+
+SELECT * FROM OTODOM_DATA_FLATTEN_TRANSLATE_FULL;
+
+
+
+
+----------------
+       END
+----------------

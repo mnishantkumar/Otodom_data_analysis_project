@@ -1,0 +1,147 @@
+
+
+--- IF you cannot purchase dataset from Brightdata then do the following steps to export sample dataset to Snowflake ---
+--- This sample dataset has 62k+ records having apartment data for all major cities in Poland, which should be good enough to build the project ---
+
+
+--------
+STEP - 1 --- Download the sample dataset
+--------
+
+Download the 3 csv file from my blog which should be named as follows:
+  --> Sample_ORG_Dataset_Part1.zip
+  --> Sample_ORG_Dataset_Part2.zip
+  --> Sample_ORG_Dataset_Part3.zip
+
+
+Unzip the file and place them in your computer.
+
+
+These 3 file has just one column and 62k+ records. The data is in JSON format even though file is CSV.
+
+
+
+
+
+--------
+STEP - 2 --- Create the destination table
+--------
+
+CREATE or replace TABLE OTODOM_DATA_dump_short
+(
+    json_data  text
+);
+
+
+
+
+
+--------
+STEP - 3 --- Create the file format object
+--------
+
+CREATE OR REPLACE FILE FORMAT CSV_FORMAT
+  type = csv
+  field_delimiter = ','
+  field_optionally_enclosed_by='"';
+
+
+
+
+
+--------
+STEP - 4 --- Create the internal stage object
+--------
+
+CREATE OR REPLACE STAGE MY_CSV_STAGE_SHORT
+  file_format=csv_format;
+
+
+
+
+
+--------
+STEP - 5 --- Load csv file data to internal stage. Please note, below PUT command can only be run from SNOWSQL (Command line prompt of Snowflake)
+--------
+
+PUT file:///Users/thoufiq/coding/projects/otodom_data_analysis/FINAL/techTFQ_Blog/Dataset/Apartment_major_cities_dataset/Otodom_Apartment_major_cities_dataset_ORG_JSON_Format_Part1.csv @MY_CSV_STAGE_SHORT;
+
+PUT file:///Users/thoufiq/coding/projects/otodom_data_analysis/FINAL/techTFQ_Blog/Dataset/Apartment_major_cities_dataset/Otodom_Apartment_major_cities_dataset_ORG_JSON_Format_Part2.csv @MY_CSV_STAGE_SHORT;
+
+PUT file:///Users/thoufiq/coding/projects/otodom_data_analysis/FINAL/techTFQ_Blog/Dataset/Apartment_major_cities_dataset/Otodom_Apartment_major_cities_dataset_ORG_JSON_Format_Part3.csv @MY_CSV_STAGE_SHORT;
+
+
+
+
+
+--------
+STEP - 6 --- Load data from stage to table
+--------
+
+COPY INTO OTODOM_DATA_DUMP_SHORT
+FROM @MY_CSV_STAGE_SHORT;
+
+
+
+
+
+--------
+STEP - 7 --- Verify the data
+--------
+
+_ -- Should be 62816 records.
+
+SELECT PARSE_JSON(json_data):price FROM OTODOM_DATA_dump_short limit 5; -- Should return just the Price field
+
+SELECT json_data:price FROM OTODOM_DATA_dump_short limit 5; -- This will throw error since the field is text but has JSON format data hence need to use PARSE_JSON function to parse the JSON data in this field as shown in above query.
+
+
+
+
+
+--------
+STEP - 8 --- Flatten the data and load to a new table
+--------
+
+CREATE OR REPLACE table otodom_data_short_flatten
+as
+select row_number() over(order by title) as rn
+, x.*
+from (
+select replace(parse_json(json_data):advertiser_type,'"')::string as advertiser_type
+, replace(parse_json(json_data):balcony_garden_terrace,'"')::string as balcony_garden_terrace
+, regexp_replace(replace(parse_json(json_data):description,'"'), '<[^>]+>')::string as description
+, replace(parse_json(json_data):heating,'"')::string as heating
+, replace(parse_json(json_data):is_for_sale,'"')::string as is_for_sale
+, replace(parse_json(json_data):lighting,'"')::string as lighting
+, replace(parse_json(json_data):location,'"')::string as location
+, replace(parse_json(json_data):price,'"')::string as price
+, replace(parse_json(json_data):remote_support,'"')::string as remote_support
+, replace(parse_json(json_data):rent_sale,'"')::string as rent_sale
+, replace(parse_json(json_data):surface,'"')::string as surface
+, replace(parse_json(json_data):timestamp,'"')::date as timestamp
+, replace(parse_json(json_data):title,'"')::string as title
+, replace(parse_json(json_data):url,'"')::string as url
+, replace(parse_json(json_data):form_of_property,'"')::string as form_of_property
+, replace(parse_json(json_data):no_of_rooms,'"')::string as no_of_rooms
+, replace(parse_json(json_data):parking_space,'"')::string as parking_space
+from OTODOM_DATA_DUMP_SHORT 
+
+) x;
+
+
+
+
+
+----------
+NEXT STEPS -- Transform data for Location and Title fields as mentioned in my YouTube video using Python and Google Sheets and then build reports.
+----------
+
+
+
+
+
+
+
+
+
